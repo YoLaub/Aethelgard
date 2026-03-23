@@ -1,0 +1,14 @@
+/node_modules
+/dist
+/.env
+/coverage
+/.vscode
+
+# Ignore temporary files
+/tmp
+# Ignore package-lock.json if you prefer using yarn
+package-lock.json
+# Ignore yarn.lock if you prefer using npm
+yarn.lock
+# Ignore VS Code settings
+.vscode/
