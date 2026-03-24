@@ -3,6 +3,9 @@ import { auth, GameRepository } from '../infrastructure/FirebaseService';
 import { signInAnonymously, onAuthStateChanged } from 'firebase/auth';
 import { SimulationEngine, INITIAL_STATE } from '../domain/SimulationEngine';
 
+// Génère un état initial avec un seed unique pour chaque partie
+const newGame = () => ({ ...INITIAL_STATE, seed: Math.floor(Math.random() * 999983) });
+
 export function useGameSession() {
   const [user, setUser] = useState(null);
   const [state, setState] = useState(null);
@@ -29,14 +32,15 @@ export function useGameSession() {
         if (data) {
           setState(data);
         } else {
-          setState(INITIAL_STATE);
-          GameRepository.save(user.uid, INITIAL_STATE);
+          const fresh = newGame();
+          setState(fresh);
+          GameRepository.save(user.uid, fresh);
         }
         setLoading(false);
       },
       (err) => {
         console.error('Firestore error:', err);
-        setState(INITIAL_STATE);
+        setState(newGame());
         setLoading(false);
       }
     );
@@ -52,7 +56,7 @@ export function useGameSession() {
   // Réinitialisation
   const reset = useCallback(async () => {
     if (!user) return;
-    await GameRepository.save(user.uid, INITIAL_STATE);
+    await GameRepository.save(user.uid, newGame());
   }, [user]);
 
   return { state, loading, playTurn, reset };

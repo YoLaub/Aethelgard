@@ -1,6 +1,6 @@
 import { initializeApp } from 'firebase/app';
 import { getFirestore, doc, setDoc, onSnapshot } from 'firebase/firestore';
-import { getAuth, signInAnonymously, onAuthStateChanged } from 'firebase/auth';
+import { getAuth } from 'firebase/auth';
 
 // Remplace ceci par ta vraie configuration Firebase de ton projet web
 
@@ -17,10 +17,11 @@ export const GameRepository = {
     if (uid) await setDoc(GameRepository.getRef(uid), state); // On remplace this par GameRepository
   },
   
-  subscribe: (uid, callback) => {
-    // On remplace this par GameRepository ici aussi
-    return onSnapshot(GameRepository.getRef(uid), (snap) => {
-      callback(snap.exists() ? snap.data() : null);
-    });
+  subscribe: (uid, callback, onError) => {
+    return onSnapshot(
+      GameRepository.getRef(uid),
+      (snap) => callback(snap.exists() ? snap.data() : null),
+      onError
+    );
   }
 };

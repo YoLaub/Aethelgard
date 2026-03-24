@@ -300,9 +300,11 @@ const ProceduralMap = ({ state }) => {
   const mapRadius  = 7;
   const tileRadius = 0.75;
 
+  const seed    = state.seed || 12345;
+
   const mapData = useMemo(() => {
-    const noise2D     = makeNoise2D(12345);
-    const forestNoise = makeNoise2D(54321); // couche de densité forestière
+    const noise2D     = makeNoise2D(seed);
+    const forestNoise = makeNoise2D(seed * 2 + 1);
     const tiles       = [];
     const highPoints  = [];
 
@@ -387,7 +389,7 @@ const ProceduralMap = ({ state }) => {
     highestTile.hasCrystal  = false;
 
     return { tiles, highestTile };
-  }, [mapRadius, tileRadius]);
+  }, [mapRadius, tileRadius, seed]);
 
   const floatSpeed = 0.5 + state.chaos / 10;
 
@@ -454,14 +456,12 @@ const ProceduralMap = ({ state }) => {
 };
 
 // --- SCÈNE PRINCIPALE ---
-export const Island3D = ({ state }) => {
-  // psyche basse = brouillard dense
+export const Island3D = ({ state, className = '' }) => {
   const fogFar = state.psyche < 30 ? 38 : state.psyche < 60 ? 65 : 110;
 
   return (
     <div
-      className="bg-[#020617] rounded-[2rem] border border-white/5 overflow-hidden cursor-move"
-      style={{ width: '100%', height: '600px' }}
+      className={`bg-[#020617] rounded-[2rem] border border-white/5 overflow-hidden cursor-move w-full ${className}`}
     >
       <Canvas camera={{ position: [0, 15, 20], fov: 45 }} shadows>
         <fog attach="fog" args={['#020617', 25, fogFar]} />
