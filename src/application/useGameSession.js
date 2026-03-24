@@ -10,21 +10,36 @@ export function useGameSession() {
 
   // Initialisation de l'authentification anonyme
   useEffect(() => {
-    signInAnonymously(auth).catch(console.error);
-    return onAuthStateChanged(auth, setUser);
+    signInAnonymously(auth).catch((err) => {
+      console.error('Auth failed:', err);
+      setLoading(false);
+    });
+    return onAuthStateChanged(auth, (u) => {
+      setUser(u);
+      if (!u) setLoading(false);
+    });
   }, []);
 
   // Synchronisation avec Firestore
   useEffect(() => {
     if (!user) return;
-    return GameRepository.subscribe(user.uid, (data) => {
-      if (data) {
-        setState(data);
-      } else {
-        GameRepository.save(user.uid, INITIAL_STATE);
+    return GameRepository.subscribe(
+      user.uid,
+      (data) => {
+        if (data) {
+          setState(data);
+        } else {
+          setState(INITIAL_STATE);
+          GameRepository.save(user.uid, INITIAL_STATE);
+        }
+        setLoading(false);
+      },
+      (err) => {
+        console.error('Firestore error:', err);
+        setState(INITIAL_STATE);
+        setLoading(false);
       }
-      setLoading(false);
-    });
+    );
   }, [user]);
 
   // Action du joueur

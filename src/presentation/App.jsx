@@ -1,17 +1,9 @@
 import React from 'react';
 import { useGameSession } from '../application/useGameSession';
 import { Leaf, Users, Thermometer, Zap, AlertTriangle, Crown, RefreshCw } from 'lucide-react';
+import { Island3D } from './components/Island3D';
+import { DILEMMAS } from '../domain/dilemmas';
 
-const DILEMMAS = [
-  {
-    title: "Le Nexus Brisé",
-    text: "Une fuite de mana irradie les forêts flottantes.",
-    options: [
-      { label: "Sceller la fuite", desc: "Consomme du mana, stabilise la bio.", effects: { mana: -15, bio: 10, thermal: -5 } },
-      { label: "Canaliser l'énergie", desc: "Booste le mana, mais augmente le chaos.", effects: { mana: 20, chaos: 3, thermal: 10 } }
-    ]
-  }
-];
 
 const Stat = ({ icon: Icon, label, value, color }) => (
   <div className="flex flex-col gap-1">
@@ -28,7 +20,7 @@ const Stat = ({ icon: Icon, label, value, color }) => (
 export default function App() {
   const { state, loading, playTurn, reset } = useGameSession();
 
-  if (loading) return <div className="h-screen bg-black flex items-center justify-center text-indigo-500 font-mono animate-pulse uppercase tracking-widest">Initialisation...</div>;
+  if (loading || !state) return <div className="h-screen bg-black flex items-center justify-center text-indigo-500 font-mono animate-pulse uppercase tracking-widest">Initialisation...</div>;
 
   const dilemma = DILEMMAS[state.cycle % DILEMMAS.length];
 
@@ -50,6 +42,8 @@ export default function App() {
         </header>
 
         <main className="flex-1 py-12 space-y-12">
+          <Island3D state={state} />
+
           <div className="grid grid-cols-2 gap-6 bg-white/[0.02] p-6 rounded-[2rem] border border-white/5">
             <Stat icon={Leaf} label="Bio" value={state.bio} color="bg-emerald-500" />
             <Stat icon={Users} label="Psyché" value={state.psyche} color="bg-fuchsia-500" />
