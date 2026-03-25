@@ -1,7 +1,7 @@
 // src/components/Island3D.jsx
 import React, { useRef, useMemo } from 'react';
 import { Canvas, useFrame } from '@react-three/fiber';
-import { OrbitControls, Float, Sparkles, Environment, useGLTF } from '@react-three/drei';
+import { OrbitControls, Float, Sparkles, Environment, useGLTF, Edges } from '@react-three/drei';
 import * as THREE from 'three';
 import { makeNoise2D } from 'open-simplex-noise';
 
@@ -281,6 +281,101 @@ const ChaosOrbs = ({ chaos, psyche }) => {
   );
 };
 
+// --- CASCADE D'EAU ---
+const Waterfall = ({ position, rotationY = 0, height = 9 }) => {
+  const geoRef = useRef();
+  const COUNT  = 55;
+
+  // Positions initiales déterministes (pas de Math.random pour la stabilité React)
+  const initPositions = useMemo(() => {
+    const arr = new Float32Array(COUNT * 3);
+    for (let i = 0; i < COUNT; i++) {
+      arr[i * 3]     = ((i * 11) % 13 - 6) * 0.06;    // étalement X
+      arr[i * 3 + 1] = -(i / COUNT) * height;           // de 0 vers -height (vers le bas)
+      arr[i * 3 + 2] = ((i *  7) % 11 - 5) * 0.04;    // étalement Z
+    }
+    return arr;
+  }, [COUNT, height]);
+
+  useFrame(() => {
+    if (!geoRef.current) return;
+    const pos = geoRef.current.attributes.position.array;
+    for (let i = 0; i < COUNT; i++) {
+      pos[i * 3]     += ((i % 3) - 1) * 0.001;  // légère dispersion latérale
+      pos[i * 3 + 1] -= 0.085;                   // chute
+      // Recycle au sommet quand la particule atteint le bas
+      if (pos[i * 3 + 1] < -height) {
+        pos[i * 3]     = ((i * 11) % 13 - 6) * 0.06;
+        pos[i * 3 + 1] = 0;
+        pos[i * 3 + 2] = ((i *  7) % 11 - 5) * 0.04;
+      }
+    }
+    geoRef.current.attributes.position.needsUpdate = true;
+  });
+
+  return (
+    <group position={position} rotation={[0, rotationY, 0]}>
+      {/* Flux de particules */}
+      <points>
+        <bufferGeometry ref={geoRef}>
+          <bufferAttribute
+            attach="attributes-position"
+            count={COUNT}
+            array={initPositions}
+            itemSize={3}
+          />
+        </bufferGeometry>
+        <pointsMaterial color="#7dd3fc" size={0.09} transparent opacity={0.85} sizeAttenuation depthWrite={false} />
+      </points>
+
+      {/* Voile d'eau semi-transparent */}
+      <mesh position={[0, -height / 2, 0]}>
+        <planeGeometry args={[0.55, height, 1, 1]} />
+        <meshStandardMaterial
+          color="#bae6fd"
+          emissive="#38bdf8"
+          emissiveIntensity={0.35}
+          transparent opacity={0.18}
+          side={THREE.DoubleSide}
+          depthWrite={false}
+        />
+      </mesh>
+
+      {/* Brume d'éclaboussures en bas */}
+      <Sparkles
+        count={20}
+        position={[0, -height + 0.8, 0]}
+        scale={[1.6, 0.5, 1.6]}
+        size={3}
+        speed={0.18}
+        color="#bfdbfe"
+      />
+    </group>
+  );
+};
+
+// Anneau de 5 cascades positionnées aux bords de l'île
+const WaterfallRing = () => {
+  const falls = useMemo(() => [
+    { angle:  18, radius: 8.0, height:  9.5 },
+    { angle:  90, radius: 8.4, height:  8.0 },
+    { angle: 162, radius: 7.8, height: 10.5 },
+    { angle: 234, radius: 8.2, height:  9.0 },
+    { angle: 306, radius: 7.6, height:  8.5 },
+  ].map(({ angle, radius, height }) => {
+    const rad = (angle * Math.PI) / 180;
+    return { x: Math.sin(rad) * radius, z: Math.cos(rad) * radius, rotY: rad, height };
+  }), []);
+
+  return (
+    <>
+      {falls.map((f, i) => (
+        <Waterfall key={i} position={[f.x, 0, f.z]} rotationY={f.rotY} height={f.height} />
+      ))}
+    </>
+  );
+};
+
 // --- ÉCLAIRAGE DYNAMIQUE : réagit à thermal et psyche ---
 const SceneLighting = ({ thermal, psyche }) => {
   const thermalT      = thermal / 100;
@@ -291,6 +386,180 @@ const SceneLighting = ({ thermal, psyche }) => {
     <>
       <ambientLight color={ambientColor} intensity={ambientInt} />
       <directionalLight position={[10, 15, 5]} intensity={1.8} castShadow shadow-mapSize={[2048, 2048]} />
+    </>
+  );
+};
+
+// --- HABITANT : golem low-poly inspiré du Sentinel ---
+// Directions voisines en grille hexagonale (coordonnées axiales q,r)
+const HEX_DIRS = [[1,0],[-1,0],[0,1],[0,-1],[1,-1],[-1,1]];
+
+// --- HABITANT : golem qui se déplace de tuile en tuile ---
+const Inhabitant = ({ startTile, tileMap, seed, psyche }) => {
+  const groupRef = useRef();
+
+  // État de navigation (mutable, sans re-render)
+  const nav = useRef({
+    from:      startTile,
+    to:        startTile,
+    progress:  1,
+    waitTimer: (seed % 40) * 0.075, // décalage initial pour éviter la synchronie
+    step:      0,
+  });
+
+  useFrame(({ clock }, delta) => {
+    if (!groupRef.current) return;
+    const n   = nav.current;
+    const t   = clock.elapsedTime;
+    const pt  = psyche / 100;
+    const exc = Math.max(0, (psyche - 65) / 35);
+
+    const moveSpeed = 0.45 + pt * 1.0;        // lent (calme) → rapide (excité)
+    const waitBase  = 1.8 - pt * 1.1;         // longue pause → courte pause
+
+    if (n.progress >= 1) {
+      // Attente sur la tuile — idle bobbing
+      n.waitTimer -= delta;
+      groupRef.current.position.y = n.to.height + Math.sin(t * 1.8 + seed) * 0.02;
+      if (exc > 0) groupRef.current.rotation.x = exc * Math.sin(t * 7 + seed) * 0.12;
+      if (n.waitTimer > 0) return;
+
+      // Choisir la prochaine tuile voisine praticable
+      n.step++;
+      n.from = n.to;
+      const neighbors = HEX_DIRS
+        .map(([dq, dr]) => tileMap.get(`${n.from.q + dq},${n.from.r + dr}`))
+        .filter(Boolean);
+
+      if (neighbors.length > 0) {
+        const r = pseudoRandom(n.from.x + n.step * 0.19, n.from.z + seed * 0.07);
+        n.to = neighbors[Math.floor(r * neighbors.length)];
+      }
+      n.progress  = 0;
+      n.waitTimer = waitBase + pseudoRandom(seed + n.step, n.from.z) * 1.5;
+    }
+
+    // Avancer vers la cible
+    n.progress = Math.min(1, n.progress + delta * moveSpeed);
+    // easeInOut quadratique
+    const ease = n.progress < 0.5
+      ? 2 * n.progress * n.progress
+      : 1 - Math.pow(-2 * n.progress + 2, 2) / 2;
+
+    const x = n.from.x + (n.to.x - n.from.x) * ease;
+    const y = n.from.height + (n.to.height - n.from.height) * ease
+              + Math.sin(n.progress * Math.PI) * 0.10; // petit arc de saut
+    const z = n.from.z + (n.to.z - n.from.z) * ease;
+
+    groupRef.current.position.set(x, y, z);
+
+    // Rotation vers la direction de déplacement
+    const dx = n.to.x - n.from.x;
+    const dz = n.to.z - n.from.z;
+    if (Math.abs(dx) + Math.abs(dz) > 0.01) {
+      const target = Math.atan2(dx, dz);
+      groupRef.current.rotation.y += (target - groupRef.current.rotation.y) * 0.18;
+    }
+    if (exc > 0) groupRef.current.rotation.x = exc * Math.sin(t * 7 + seed) * 0.12;
+  });
+
+  // Couleurs selon psyche
+  const edgeColor    = psyche > 65 ? lerpColor('#22c55e', '#ef4444', (psyche-65)/35)
+                     : psyche < 35 ? lerpColor('#22c55e', '#3b82f6', (35-psyche)/35)
+                     : '#22c55e';
+  const eyeColor     = psyche > 65 ? '#ff6600' : psyche < 35 ? '#60c8ff' : '#00e5ff';
+  const eyeEmissive  = psyche > 65 ? '#ff4400' : psyche < 35 ? '#3b82f6' : '#00c8ff';
+  const bodyEmissive = psyche > 65 ? '#2e0505' : psyche < 35 ? '#050a2e' : '#052e0a';
+  const lightColor   = psyche > 65 ? '#ff4400' : psyche < 35 ? '#3b82f6' : '#00aaff';
+
+  return (
+    <group ref={groupRef} position={[startTile.x, startTile.height, startTile.z]} scale={0.11}>
+      {/* Jambe gauche */}
+      <mesh position={[-0.5, 0.55, 0]} castShadow>
+        <boxGeometry args={[0.7, 1.1, 0.65]} />
+        <meshStandardMaterial color="#151a15" roughness={0.6} metalness={0.4} />
+        <Edges color={edgeColor} threshold={15} />
+      </mesh>
+      {/* Jambe droite */}
+      <mesh position={[0.5, 0.55, 0]} castShadow>
+        <boxGeometry args={[0.7, 1.1, 0.65]} />
+        <meshStandardMaterial color="#151a15" roughness={0.6} metalness={0.4} />
+        <Edges color={edgeColor} threshold={15} />
+      </mesh>
+      {/* Torse */}
+      <mesh position={[0, 1.9, 0]} castShadow>
+        <boxGeometry args={[1.9, 1.8, 1.3]} />
+        <meshStandardMaterial color="#1a1f1a" roughness={0.6} metalness={0.5} emissive={bodyEmissive} emissiveIntensity={0.8} />
+        <Edges color={edgeColor} threshold={15} />
+      </mesh>
+      {/* Bras gauche */}
+      <mesh position={[-1.25, 1.9, 0.05]} rotation={[0.1, 0, 0.15]} castShadow>
+        <boxGeometry args={[0.65, 1.7, 0.65]} />
+        <meshStandardMaterial color="#151a15" roughness={0.6} metalness={0.4} />
+        <Edges color={edgeColor} threshold={15} />
+      </mesh>
+      {/* Bras droit */}
+      <mesh position={[1.25, 1.9, 0.05]} rotation={[0.1, 0, -0.15]} castShadow>
+        <boxGeometry args={[0.65, 1.7, 0.65]} />
+        <meshStandardMaterial color="#151a15" roughness={0.6} metalness={0.4} />
+        <Edges color={edgeColor} threshold={15} />
+      </mesh>
+      {/* Tête */}
+      <group position={[0, 3.15, 0]}>
+        <mesh castShadow>
+          <boxGeometry args={[1.5, 1.4, 1.4]} />
+          <meshStandardMaterial color="#1a1f1a" roughness={0.5} metalness={0.5} emissive={bodyEmissive} emissiveIntensity={0.6} />
+          <Edges color={edgeColor} threshold={15} />
+        </mesh>
+        <mesh position={[0, 0.05, 0.72]} castShadow>
+          <octahedronGeometry args={[0.25, 0]} />
+          <meshStandardMaterial color={eyeColor} emissive={eyeEmissive} emissiveIntensity={4} roughness={0.05} metalness={0.9} />
+        </mesh>
+        <pointLight position={[0, 0.05, 0.72]} color={lightColor} intensity={0.8} distance={2.5} />
+        <mesh position={[-0.42, 0.92, 0.1]} rotation={[0.15, 0, -0.2]} castShadow>
+          <coneGeometry args={[0.15, 0.75, 4]} />
+          <meshStandardMaterial color="#111511" roughness={0.8} />
+          <Edges color={edgeColor} threshold={15} />
+        </mesh>
+        <mesh position={[0.42, 0.92, 0.1]} rotation={[0.15, 0, 0.2]} castShadow>
+          <coneGeometry args={[0.15, 0.75, 4]} />
+          <meshStandardMaterial color="#111511" roughness={0.8} />
+          <Edges color={edgeColor} threshold={15} />
+        </mesh>
+      </group>
+    </group>
+  );
+};
+
+// Spawn et déplacement des habitants — densité via bio, comportement via psyche
+const Inhabitants = ({ tiles, bio, psyche }) => {
+  // Carte des tuiles praticables (herbe + roche) indexée par q,r
+  const tileMap = useMemo(() => {
+    const map = new Map();
+    tiles.forEach(t => {
+      if (t.terrainType === 'herbe' || t.terrainType === 'roche')
+        map.set(`${t.q},${t.r}`, t);
+    });
+    return map;
+  }, [tiles]);
+
+  // Liste de spawn : bio 0→100 donne prob 0.15→0.55
+  const spawnList = useMemo(() => {
+    const prob = 0.15 + (bio / 100) * 0.40;
+    return tiles
+      .filter(t => t.terrainType === 'herbe' && !t.isDenseForest && pseudoRandom(t.x + 99, t.z + 77) <= prob)
+      .map(t => ({
+        key:       `${t.q}-${t.r}`,
+        startTile: t,
+        seed:      Math.floor(pseudoRandom(t.x + 33, t.z + 44) * 9999),
+      }));
+  }, [tiles, bio]);
+
+  return (
+    <>
+      {spawnList.map(s => (
+        <Inhabitant key={s.key} startTile={s.startTile} tileMap={tileMap} seed={s.seed} psyche={psyche} />
+      ))}
     </>
   );
 };
@@ -449,6 +718,10 @@ const ProceduralMap = ({ state }) => {
         )}
 
         <ChaosOrbs chaos={state.chaos} psyche={state.psyche} />
+
+        <Inhabitants tiles={mapData.tiles} bio={state.bio} psyche={state.psyche} />
+
+        <WaterfallRing />
 
       </group>
     </Float>
