@@ -1,8 +1,16 @@
-import React from 'react';
+import { useState } from 'react';
 import { useGameSession } from '../application/useGameSession';
 import { Leaf, Users, Thermometer, Zap, AlertTriangle, Crown, RefreshCw, Trophy } from 'lucide-react';
 import { Island3D } from './components/Island3D';
 import { DILEMMAS } from '../domain/dilemmas';
+
+// Couleurs des effets : positif/négatif selon la jauge
+const effectStyle = (key, val) => {
+  if (key === 'chaos')   return val > 0 ? 'bg-red-500/15 text-red-400'    : 'bg-green-500/15 text-green-400';
+  if (key === 'thermal') return val > 0 ? 'bg-orange-500/15 text-orange-400' : 'bg-sky-500/15 text-sky-400';
+  return val > 0 ? 'bg-emerald-500/15 text-emerald-400' : 'bg-red-500/15 text-red-400';
+};
+const GAUGE_LABEL = { bio: 'BIO', psyche: 'PSY', thermal: 'TMP', mana: 'MANA', chaos: 'CHAOS' };
 
 // ── STAT BAR ──────────────────────────────────────────────────────────────────
 const Stat = ({ icon: Icon, label, value, color }) => {
@@ -35,6 +43,12 @@ function selectDilemma(cycle, chaos) {
 // ── APP ───────────────────────────────────────────────────────────────────────
 export default function App() {
   const { state, loading, playTurn, reset } = useGameSession();
+  const [lastChoice, setLastChoice] = useState(null);
+
+  const handleChoice = (opt) => {
+    setLastChoice(opt.label);
+    playTurn(opt.effects);
+  };
 
   if (loading || !state) return (
     <div className="h-screen bg-black flex items-center justify-center text-indigo-500 font-mono animate-pulse uppercase tracking-widest">
@@ -127,16 +141,29 @@ export default function App() {
               <div className="space-y-2">
                 <h2 className="text-lg font-bold text-white tracking-tight">{dilemma.title}</h2>
                 <p className="text-slate-400 text-sm leading-relaxed italic">"{dilemma.text}"</p>
+                {lastChoice && (
+                  <div className="flex items-center gap-1.5 pt-1">
+                    <span className="text-[9px] text-slate-600 uppercase tracking-widest">↳ dernier choix</span>
+                    <span className="text-[10px] text-indigo-400 font-bold">{lastChoice}</span>
+                  </div>
+                )}
               </div>
               <div className="flex flex-col gap-3">
                 {dilemma.options.map((opt, i) => (
                   <button
                     key={i}
-                    onClick={() => playTurn(opt.effects)}
+                    onClick={() => handleChoice(opt)}
                     className="p-4 rounded-2xl border border-white/10 bg-white/5 hover:bg-indigo-500/10 hover:border-indigo-500/50 transition-all text-left group"
                   >
                     <div className="font-bold text-slate-200 group-hover:text-indigo-400 text-sm">{opt.label}</div>
                     <div className="text-[10px] text-slate-500 mt-1 uppercase tracking-wider">{opt.desc}</div>
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {Object.entries(opt.effects).map(([key, val]) => (
+                        <span key={key} className={`text-[9px] font-bold font-mono px-1.5 py-0.5 rounded-md ${effectStyle(key, val)}`}>
+                          {val > 0 ? '+' : ''}{val} {GAUGE_LABEL[key] ?? key}
+                        </span>
+                      ))}
+                    </div>
                   </button>
                 ))}
               </div>
